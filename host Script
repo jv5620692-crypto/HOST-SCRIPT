@@ -1,0 +1,481 @@
+--// ============================================
+--// ❄️ PAINEL SNOW - HUB FLUXO PVP
+--// ============================================
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+
+local LP = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+
+--// ============================================
+--// CONFIGURAÇÕES
+--// ============================================
+local Config = {
+    -- Aimbot
+    Aimbot = false,
+    MiraPeito = false,
+    AimbotLegit = false,
+    WallCheck = true,
+    MostrarFOV = true,
+    FOVSize = 275,
+    Suavidade = 20, -- 20, 30, 40, 50
+    NivelSuave = 1,
+    
+    -- ESP
+    ESP_Nome = false,
+    ESP_Caixa = false,
+    ESP_Linha = false,
+    
+    -- Extras
+    Speed = false,
+    Bypass = true,
+}
+
+local DeadPlayers = {}
+local ESPObjs = {}
+
+--// ============================================
+--// FOV & LINHAS (DRAWING API)
+--// ============================================
+local isDrawingSupported = pcall(function() return Drawing.new("Circle") end)
+local FovCircle, LinhaInimigo
+
+if isDrawingSupported then
+    FovCircle = Drawing.new("Circle")
+    FovCircle.Thickness = 1.5
+    FovCircle.Color = Color3.fromRGB(255, 255, 255)
+    FovCircle.Transparency = 0.5
+    FovCircle.Filled = false
+    FovCircle.Visible = false
+    
+    LinhaInimigo = Drawing.new("Line")
+    LinhaInimigo.Thickness = 1
+    LinhaInimigo.Color = Color3.fromRGB(255, 255, 255)
+    LinhaInimigo.Transparency = 0.8
+    LinhaInimigo.Visible = false
+end
+
+--// ============================================
+--// UI - PAINEL SNOW (ESTILO FOTO)
+--// ============================================
+local gui = Instance.new("ScreenGui")
+gui.Name = "PainelSnow"
+gui.ResetOnSpawn = false
+gui.IgnoreGuiInset = true
+gui.Parent = game.CoreGui
+
+-- Botão flutuante (Pequeno e discreto)
+local toggle = Instance.new("TextButton")
+toggle.Size = UDim2.new(0, 40, 0, 40)
+toggle.Position = UDim2.new(0, 20, 0.5, -20)
+toggle.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+toggle.TextColor3 = Color3.fromRGB(255, 255, 255)
+toggle.Text = "❄️"
+toggle.Font = Enum.Font.GothamBlack
+toggle.TextSize = 20
+toggle.BorderSizePixel = 0
+toggle.Parent = gui
+
+local tc = Instance.new("UICorner")
+tc.CornerRadius = UDim.new(0, 6)
+tc.Parent = toggle
+
+-- Painel
+local frame = Instance.new("Frame")
+frame.Size = UDim2.new(0, 260, 0, 320)
+frame.Position = UDim2.new(0, 70, 0.5, -160)
+frame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+frame.BorderSizePixel = 0
+frame.Visible = false
+frame.Active = true
+frame.Parent = gui
+
+local fc = Instance.new("UICorner")
+fc.CornerRadius = UDim.new(0, 4)
+fc.Parent = frame
+
+local fs = Instance.new("UIStroke")
+fs.Color = Color3.fromRGB(50, 50, 50)
+fs.Thickness = 1
+fs.Parent = frame
+
+-- Header (Vermelho)
+local header = Instance.new("Frame")
+header.Size = UDim2.new(1, 0, 0, 25)
+header.BackgroundColor3 = Color3.fromRGB(180, 0, 0)
+header.BorderSizePixel = 0
+header.Parent = frame
+
+local hc = Instance.new("UICorner")
+hc.CornerRadius = UDim.new(0, 4)
+hc.Parent = header
+
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, -10, 1, 0)
+title.Position = UDim2.new(0, 8, 0, 0)
+title.BackgroundTransparency = 1
+title.Text = "❄️ Painel Snow XIT | discord.gg/snowxit"
+title.TextColor3 = Color3.fromRGB(255, 255, 255)
+title.Font = Enum.Font.GothamBold
+title.TextSize = 10
+title.TextXAlignment = Enum.TextXAlignment.Left
+title.Parent = header
+
+-- Tabs (Visual apenas)
+local tabs = Instance.new("Frame")
+tabs.Size = UDim2.new(1, 0, 0, 20)
+tabs.Position = UDim2.new(0, 0, 0, 25)
+tabs.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+tabs.BorderSizePixel = 0
+tabs.Parent = frame
+
+local function makeTab(texto, x, ativo)
+    local t = Instance.new("TextLabel")
+    t.Size = UDim2.new(0, 50, 1, 0)
+    t.Position = UDim2.new(0, x, 0, 0)
+    t.BackgroundTransparency = 1
+    t.Text = texto
+    t.TextColor3 = ativo and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(150, 150, 150)
+    t.Font = Enum.Font.GothamBold
+    t.TextSize = 10
+    t.Parent = tabs
+end
+makeTab("PvP", 10, true)
+makeTab("Player", 60, false)
+makeTab("Misc", 110, false)
+
+-- Container de Botões
+local scroll = Instance.new("ScrollingFrame")
+scroll.Size = UDim2.new(1, -10, 1, -55)
+scroll.Position = UDim2.new(0, 5, 0, 50)
+scroll.BackgroundTransparency = 1
+scroll.BorderSizePixel = 0
+scroll.ScrollBarThickness = 2
+scroll.CanvasSize = UDim2.new(0, 0, 0, 400)
+scroll.Parent = frame
+
+local ll = Instance.new("UIListLayout")
+ll.Padding = UDim.new(0, 4)
+ll.SortOrder = Enum.SortOrder.LayoutOrder
+ll.Parent = scroll
+
+-- Função Checkbox (Igual da foto)
+local function check(nome, order, estado, callback)
+    local b = Instance.new("TextButton")
+    b.Size = UDim2.new(1, 0, 0, 22)
+    b.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+    b.Text = ""
+    b.BorderSizePixel = 0
+    b.LayoutOrder = order
+    b.AutoButtonColor = false
+    b.Parent = scroll
+
+    local box = Instance.new("Frame")
+    box.Size = UDim2.new(0, 14, 0, 14)
+    box.Position = UDim2.new(0, 8, 0.5, -7)
+    box.BackgroundColor3 = estado and Color3.fromRGB(180, 0, 0) or Color3.fromRGB(50, 50, 50)
+    box.BorderSizePixel = 0
+    box.Parent = b
+    
+    local bc = Instance.new("UICorner")
+    bc.CornerRadius = UDim.new(0, 2)
+    bc.Parent = box
+    
+    local chk = Instance.new("TextLabel")
+    chk.Size = UDim2.new(1, 0, 1, 0)
+    chk.BackgroundTransparency = 1
+    chk.Text = estado and "✓" or ""
+    chk.TextColor3 = Color3.fromRGB(255, 255, 255)
+    chk.TextSize = 10
+    chk.Parent = box
+
+    local txt = Instance.new("TextLabel")
+    txt.Size = UDim2.new(1, -30, 1, 0)
+    txt.Position = UDim2.new(0, 28, 0, 0)
+    txt.BackgroundTransparency = 1
+    txt.Text = nome
+    txt.TextColor3 = Color3.fromRGB(200, 200, 200)
+    txt.Font = Enum.Font.Gotham
+    txt.TextSize = 10
+    txt.TextXAlignment = Enum.TextXAlignment.Left
+    txt.Parent = b
+
+    local state = estado
+    b.MouseButton1Click:Connect(function()
+        state = not state
+        box.BackgroundColor3 = state and Color3.fromRGB(180, 0, 0) or Color3.fromRGB(50, 50, 50)
+        chk.Text = state and "✓" or ""
+        callback(state)
+    end)
+end
+
+-- Função Slider (Igual da foto)
+local function slider(nome, order, valor, minV, maxV, callback)
+    local b = Instance.new("Frame")
+    b.Size = UDim2.new(1, 0, 0, 30)
+    b.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+    b.BorderSizePixel = 0
+    b.LayoutOrder = order
+    b.Parent = scroll
+
+    local txt = Instance.new("TextLabel")
+    txt.Size = UDim2.new(1, -10, 0, 15)
+    txt.Position = UDim2.new(0, 5, 0, 2)
+    txt.BackgroundTransparency = 1
+    txt.Text = nome .. ": " .. valor
+    txt.TextColor3 = Color3.fromRGB(200, 200, 200)
+    txt.Font = Enum.Font.Gotham
+    txt.TextSize = 10
+    txt.TextXAlignment = Enum.TextXAlignment.Left
+    txt.Parent = b
+
+    local barBg = Instance.new("Frame")
+    barBg.Size = UDim2.new(1, -10, 0, 6)
+    barBg.Position = UDim2.new(0, 5, 0, 20)
+    barBg.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+    barBg.BorderSizePixel = 0
+    barBg.Parent = b
+    
+    local barFill = Instance.new("Frame")
+    barFill.Size = UDim2.new((valor-minV)/(maxV-minV), 0, 1, 0)
+    barFill.BackgroundColor3 = Color3.fromRGB(180, 0, 0)
+    barFill.BorderSizePixel = 0
+    barFill.Parent = barBg
+    
+    -- Lógica de arrastar
+    local dragging = false
+    barBg.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+        end
+    end)
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = false
+        end
+    end)
+    UserInputService.InputChanged:Connect(function(input)
+        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+            local mx = input.Position.X - barBg.AbsolutePosition.X
+            local p = math.clamp(mx / barBg.AbsoluteSize.X, 0, 1)
+            barFill.Size = UDim2.new(p, 0, 1, 0)
+            local v = math.floor(minV + (maxV - minV) * p)
+            txt.Text = nome .. ": " .. v
+            callback(v)
+        end
+    end)
+end
+
+--// ============================================
+--// BOTÕES (IGUAL A FOTO)
+--// ============================================
+check("Ativar Aimbot", 1, false, function(v) Config.Aimbot = v end)
+check("Mira no Peito", 2, false, function(v) Config.MiraPeito = v end)
+check("Wall Check", 3, true, function(v) Config.WallCheck = v end)
+check("Mostrar FOV", 4, true, function(v) Config.MostrarFOV = v end)
+
+slider("Tamanho do FOV", 5, 275, 50, 500, function(v) Config.FOVSize = v end)
+slider("Suavização (Smooth)", 6, 20, 10, 50, function(v) Config.Suavidade = v end)
+slider("Nível de Suave", 7, 1, 1, 5, function(v) Config.NivelSuave = v end)
+
+check("Aimbot Legit", 8, false, function(v) Config.AimbotLegit = v end)
+check("Bypass (Anti-Ban)", 9, true, function(v) Config.Bypass = v end)
+check("ESP Nome", 10, false, function(v) Config.ESP_Nome = v; atualizarESP() end)
+check("ESP Caixa", 11, false, function(v) Config.ESP_Caixa = v; atualizarESP() end)
+check("ESP Linha", 12, false, function(v) Config.ESP_Linha = v; atualizarESP() end)
+check("Speed Disfarçado", 13, false, function(v) 
+    Config.Speed = v
+    local hum = LP.Character and LP.Character:FindFirstChildOfClass("Humanoid")
+    if hum then hum.WalkSpeed = v and 22 or 16 end
+end)
+
+--// ============================================
+--// FUNÇÕES LÓGICAS
+--// ============================================
+local function isTargetable(plr)
+    if plr == LP or DeadPlayers[plr] or not plr.Character then return false end
+    local hum = plr.Character:FindFirstChildOfClass("Humanoid")
+    return hum and hum.Health > 0
+end
+
+-- Wall Check (Raycast)
+local function checkVisible(part)
+    if not Config.WallCheck then return true end
+    local origin = Camera.CFrame.Position
+    local diff = part.Position - origin
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Exclude
+    params.FilterDescendantsInstances = {LP.Character, Camera}
+    local result = workspace:Raycast(origin, diff.Unit * diff.Magnitude, params)
+    if result and result.Instance:IsDescendantOf(part.Parent) then return true end
+    if not result then return true end
+    return false
+end
+
+local function getClosest()
+    local best, bd = nil, math.huge
+    local center = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if isTargetable(plr) then
+            local part = plr.Character:FindFirstChild(Config.MiraPeito and "UpperTorso" or "Head")
+            if part and checkVisible(part) then
+                local sp, on = Camera:WorldToScreenPoint(part.Position)
+                if on then
+                    local d = (Vector2.new(sp.X, sp.Y) - center).Magnitude
+                    -- Considera o FOVSize
+                    if d < bd and d <= Config.FOVSize then
+                        bd = d
+                        best = plr
+                    end
+                end
+            end
+        end
+    end
+    return best
+end
+
+local function watchDeaths(plr)
+    plr.CharacterAdded:Connect(function(char)
+        DeadPlayers[plr] = nil
+        local hum = char:WaitForChild("Humanoid", 5)
+        if hum then hum.Died:Connect(function() DeadPlayers[plr] = true end) end
+    end)
+    plr.CharacterRemoving:Connect(function() DeadPlayers[plr] = true end)
+end
+for _, p in ipairs(Players:GetPlayers()) do watchDeaths(p) end
+Players.PlayerAdded:Connect(watchDeaths)
+Players.PlayerRemoving:Connect(function(p) DeadPlayers[p] = nil limparESP(p) end)
+
+-- ESP System
+local function limparESP(plr)
+    if ESPObjs[plr] then ESPObjs[plr]:Destroy() ESPObjs[plr] = nil end
+end
+
+function criarESP(plr)
+    if plr == LP or not plr.Character then return end
+    limparESP(plr)
+    local char = plr.Character
+    local head = char:FindFirstChild("Head")
+    if not head then return end
+
+    local bb = Instance.new("BillboardGui")
+    bb.Size = UDim2.new(0, 50, 0, 50)
+    bb.StudsOffset = Vector3.new(0, 2.5, 0)
+    bb.AlwaysOnTop = true
+    bb.Adornee = head
+    bb.Parent = char
+
+    if Config.ESP_Nome then
+        local n = Instance.new("TextLabel")
+        n.Size = UDim2.new(1, 0, 0, 14)
+        n.BackgroundTransparency = 1
+        n.Text = plr.Name
+        n.TextColor3 = Color3.fromRGB(255, 255, 255)
+        n.TextStrokeTransparency = 0
+        n.Font = Enum.Font.GothamBold
+        n.TextSize = 11
+        n.Parent = bb
+    end
+
+    if Config.ESP_Caixa then
+        local box = Instance.new("Frame")
+        box.Size = UDim2.new(1, -10, 2, 0)
+        box.Position = UDim2.new(0, 5, 0, -10)
+        box.BackgroundTransparency = 1
+        box.Parent = bb
+        local bs = Instance.new("UIStroke")
+        bs.Color = Color3.fromRGB(255, 255, 255)
+        bs.Thickness = 1
+        bs.Parent = box
+    end
+
+    ESPObjs[plr] = bb
+end
+
+function atualizarESP()
+    for _, p in ipairs(Players:GetPlayers()) do
+        limparESP(p)
+        if p ~= LP and (Config.ESP_Nome or Config.ESP_Caixa) then
+            criarESP(p)
+        end
+    end
+end
+
+--// ============================================
+--// LOOP PRINCIPAL
+--// ============================================
+RunService.RenderStepped:Connect(function()
+    -- FOV Circle & Linhas
+    if isDrawingSupported and Config.MostrarFOV then
+        FovCircle.Visible = true
+        FovCircle.Position = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)
+        FovCircle.Radius = Config.FOVSize / 2
+    elseif isDrawingSupported then
+        FovCircle.Visible = false
+    end
+
+    local alvo = getClosest()
+    if Config.ESP_Linha and isDrawingSupported and alvo then
+        local part = alvo.Character:FindFirstChild("Head")
+        if part then
+            local sp, on = Camera:WorldToScreenPoint(part.Position)
+            if on then
+                LinhaInimigo.Visible = true
+                LinhaInimigo.From = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y)
+                LinhaInimigo.To = Vector2.new(sp.X, sp.Y)
+            end
+        end
+    elseif isDrawingSupported then
+        LinhaInimigo.Visible = false
+    end
+
+    -- Speed
+    if Config.Speed then
+        local hum = LP.Character and LP.Character:FindFirstChildOfClass("Humanoid")
+        if hum then hum.WalkSpeed = 22 end
+    end
+
+    -- Aimbot
+    if Config.Aimbot and alvo then
+        local part = alvo.Character:FindFirstChild(Config.MiraPeito and "UpperTorso" or "Head")
+        if part then
+            local newCF = CFrame.new(Camera.CFrame.Position, part.Position)
+            local lerpFactor = Config.Suavidade / 100
+            if Config.AimbotLegit then
+                -- Se for legit, a suavidade é multiplicada
+                lerpFactor = lerpFactor * 0.5
+            end
+            Camera.CFrame = Camera.CFrame:Lerp(newCF, lerpFactor)
+        end
+    end
+end)
+
+--// ============================================
+--// ABRIR / ARRASTAR
+--// ============================================
+toggle.MouseButton1Click:Connect(function()
+    frame.Visible = not frame.Visible
+end)
+
+local drag, ds, sp
+header.InputBegan:Connect(function(i)
+    if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+        drag = true; ds = i.Position; sp = frame.Position
+    end
+end)
+UserInputService.InputChanged:Connect(function(i)
+    if drag and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
+        local d = i.Position - ds
+        frame.Position = UDim2.new(sp.X.Scale, sp.X.Offset + d.X, sp.Y.Scale, sp.Y.Offset + d.Y)
+    end
+end)
+UserInputService.InputEnded:Connect(function(i)
+    if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+        drag = false
+    end
+end)
+
+print("[PAINEL SNOW] ❄️ Carregado com sucesso!")
